@@ -1,0 +1,12 @@
+[package]
+name = "HelloWindows"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+winit = "0.28"   # Para manejar ventanas y entrada del teclado
+wgpu = "0.16"    # Para la renderización en GPU
+pollster = "0.3" # Para ejecutar futuros sincrónicos
+glam = "0.23"    # Para trabajar con vectores y matrices
+bytemuck = { version = "1.13", features = ["derive"] }
+cgmath = "0.18.0"

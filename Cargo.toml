@@ -11,3 +11,4 @@ glam = "0.23"    # Para trabajar con vectores y matrices
 bytemuck = { version = "1.13", features = ["derive"] }
 cgmath = "0.18.0"
 tobj = "3.0"
+rand = "0.8"

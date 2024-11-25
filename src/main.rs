@@ -14,31 +14,28 @@ struct Uniforms {
     model: [[f32; 4]; 4],
     color: [f32; 4],
     time: f32, // Agregamos tiempo dinámico para animaciones
+    orbital_radius: f32,  // Añadimos el radio orbital
+    orbital_speed: f32,   // Añadimos la velocidad orbital
 }
 
 impl Uniforms {
-    fn new(position: [f32; 3], color: [f32; 4], scale: f32) -> Self {
+    fn new(position: [f32; 3], color: [f32; 4], scale: f32, orbital_radius: f32, orbital_speed: f32) -> Self {
         let view = cgmath::Matrix4::look_at_rh(
-            cgmath::Point3::new(0.0, 0.0, 28.0),
+            cgmath::Point3::new(0.0, 5.0, 28.0),  // Ajustamos la cámara para mejor vista
             cgmath::Point3::new(0.0, 0.0, 0.0),
             cgmath::Vector3::unit_y(),
         );
 
         let aspect_ratio = 800.0 / 600.0;
-        let fov = std::f32::consts::PI / 3.0;
-        let proj = cgmath::perspective(cgmath::Deg(fov.to_degrees()), aspect_ratio, 0.1, 100.0);
-
-        let translation = cgmath::Matrix4::from_translation(cgmath::Vector3::new(
-            position[0],
-            position[1],
-            position[2],
-        ));
+        let proj = cgmath::perspective(cgmath::Deg(60.0), aspect_ratio, 0.1, 100.0);
 
         Self {
             view_proj: (proj * view).into(),
-            model: (translation * cgmath::Matrix4::from_scale(scale)).into(),
+            model: cgmath::Matrix4::from_scale(scale).into(),
             color,
-            time: 0.0, // Inicializamos el tiempo en 0
+            time: 0.0,
+            orbital_radius,
+            orbital_speed,
         }
     }
 }
@@ -99,9 +96,11 @@ impl State {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
+
 
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -170,6 +169,28 @@ impl State {
             1.05, // Urano
         ];
 
+let orbital_speeds = [
+    0.0,    // Sol (no gira)
+    1.6,    // Mercurio (el más rápido)
+    1.2,    // Venus
+    1.0,    // Tierra (usamos la Tierra como referencia)
+    0.8,    // Marte
+    0.4,    // Júpiter
+    0.3,    // Saturno
+    0.2,    // Urano
+];
+
+let orbital_radii = [
+    0.0,    // Sol (centro, no orbita)
+    7.0,    // Mercurio (el más cercano)
+    9.0,    // Venus
+    11.0,    // Tierra
+    13.0,    // Marte
+    15.0,   // Júpiter
+    17.0,   // Saturno
+    19.0,   // Urano
+];
+
         let mut spheres = Vec::new();
 
         for (i, position) in positions.iter().enumerate() {
@@ -234,7 +255,13 @@ impl State {
                 multiview: None,
             });
 
-            let uniforms = Uniforms::new(*position, colors[i], scales[i]);
+            let uniforms = Uniforms::new(
+                *position, 
+                colors[i], 
+                scales[i], 
+                orbital_radii[i],
+                orbital_speeds[i]
+            );
 
             let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Uniform Buffer"),
@@ -290,7 +317,21 @@ impl State {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
+    
+        // Crear un vector temporal con índices y posiciones Z
+        let mut render_order: Vec<(usize, f32)> = self.spheres
+            .iter()
+            .enumerate()
+            .map(|(i, sphere)| {
+                // Extraer la posición Z de la matriz model
+                let translation_z = sphere.uniforms.model[3][2];
+                (i, translation_z)
+            })
+            .collect();
+    
+        // Ordenar de atrás hacia adelante (z más negativo primero)
+        render_order.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -315,20 +356,21 @@ impl State {
                 stencil_ops: None,
             }),
         });
-
-        for sphere in &self.spheres {
+    
+        // Renderizar en el orden calculado
+        for (index, _) in render_order {
+            let sphere = &self.spheres[index];
             render_pass.set_pipeline(&sphere.pipeline);
             render_pass.set_bind_group(0, &sphere.bind_group, &[]);
             render_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
             render_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..sphere.num_indices, 0, 0..1);
         }
-
+    
         drop(render_pass);
-
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
+    
         Ok(())
     }
 }
@@ -391,10 +433,29 @@ async fn run() {
             }
             Event::MainEventsCleared => {
                 current_time += 0.016; // Incrementa ~60 FPS
+                
                 for sphere in &mut state.spheres {
-                    // Escribe el tiempo en el buffer de uniformes (color.a)
                     let mut uniforms = sphere.uniforms;
-                    uniforms.color[3] = current_time; // Usa color.a para pasar el tiempo
+                    uniforms.time = current_time;
+                    
+                    // Calcula la nueva posición orbital
+                    if uniforms.orbital_speed > 0.0 {
+                        let angle = current_time * uniforms.orbital_speed;
+                        let x = uniforms.orbital_radius * angle.cos();
+                        let z = uniforms.orbital_radius * angle.sin();
+                        
+                        // Crea la matriz de transformación
+                        let translation = cgmath::Matrix4::from_translation(
+                            cgmath::Vector3::new(x, 0.0, z)
+                        );
+                        let rotation = cgmath::Matrix4::from_angle_y(
+                            cgmath::Rad(angle)
+                        );
+                        let scale = cgmath::Matrix4::from_scale(uniforms.model[0][0]);
+                        
+                        uniforms.model = (translation * rotation * scale).into();
+                    }
+                    
                     state.queue.write_buffer(
                         &sphere.uniform_buffer,
                         0,
@@ -402,7 +463,7 @@ async fn run() {
                     );
                 }
                 window.request_redraw();
-            }            
+            }
             Event::RedrawRequested(_) => {
                 state.render().unwrap();
             }

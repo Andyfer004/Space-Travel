@@ -813,9 +813,13 @@ async fn run() {
     let mut state = State::new(&window).await;
     let mut current_time: f32 = 0.0;
 
-    // Variables para controlar la velocidad de movimiento y rotación
-    const MOVE_SPEED: f32 = 0.2; // Velocidad de movimiento
-    const ROTATE_SPEED: f32 = 0.05; // Velocidad de rotación
+    // Variables para manejar el efecto de warping
+    let mut is_warping = false; // Indica si está en medio de un warping
+    let mut warp_time = 0.0; // Tiempo transcurrido en la animación de warping
+    let mut target_position = cgmath::Vector3::new(0.0, 0.0, 0.0); // Posición destino para el warping
+
+    // Constantes para la animación
+    const WARP_DURATION: f32 = 1.0; // Duración total del efecto (en segundos)
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -835,45 +839,63 @@ async fn run() {
                             },
                         ..
                     } => {
-                        match key {
-                            // Warping instantáneo
-                            VirtualKeyCode::Key1 => {
-                                state.spaceship_position = cgmath::Vector3::new(-15.0, 0.0, 0.0); // Sol
-                            }
-                            VirtualKeyCode::Key2 => {
-                                state.spaceship_position = cgmath::Vector3::new(-8.5, 0.0, 0.0); // Mercurio
-                            }
-                            VirtualKeyCode::Key3 => {
-                                state.spaceship_position = cgmath::Vector3::new(-6.0, 0.0, 0.0); // Venus
-                            }
-                            VirtualKeyCode::Key4 => {
-                                state.spaceship_position = cgmath::Vector3::new(-3.0, 0.0, 0.0); // Tierra
-                            }
-                            VirtualKeyCode::Key5 => {
-                                state.spaceship_position = cgmath::Vector3::new(0.0, 0.0, 0.0); // Marte
-                            }
-                            VirtualKeyCode::Key6 => {
-                                state.spaceship_position = cgmath::Vector3::new(3.0, 0.0, 0.0); // Júpiter
-                            }
-                            VirtualKeyCode::Key7 => {
-                                state.spaceship_position = cgmath::Vector3::new(7.0, 0.0, 0.0); // Saturno
-                            }
-                            VirtualKeyCode::Key8 => {
-                                state.spaceship_position = cgmath::Vector3::new(10.0, 0.0, 0.0); // Urano
-                            }
+                        // Warping instantáneo
+                        if !is_warping {
+                            match key {
+                                VirtualKeyCode::Key1 => {
+                                    target_position = cgmath::Vector3::new(-15.0, 0.0, 0.0); // Sol
+                                    is_warping = true; // Inicia la animación
+                                    warp_time = 0.0;
+                                }
+                                VirtualKeyCode::Key2 => {
+                                    target_position = cgmath::Vector3::new(-8.5, 0.0, 0.0); // Mercurio
+                                    is_warping = true;
+                                    warp_time = 0.0;
+                                }
+                                VirtualKeyCode::Key3 => {
+                                    target_position = cgmath::Vector3::new(-6.0, 0.0, 0.0); // Venus
+                                    is_warping = true;
+                                    warp_time = 0.0;
+                                }
+                                VirtualKeyCode::Key4 => {
+                                    target_position = cgmath::Vector3::new(-3.0, 0.0, 0.0); // Tierra
+                                    is_warping = true;
+                                    warp_time = 0.0;
+                                }
+                                VirtualKeyCode::Key5 => {
+                                    target_position = cgmath::Vector3::new(0.0, 0.0, 0.0); // Marte
+                                    is_warping = true;
+                                    warp_time = 0.0;
+                                }
+                                VirtualKeyCode::Key6 => {
+                                    target_position = cgmath::Vector3::new(3.0, 0.0, 0.0); // Júpiter
+                                    is_warping = true;
+                                    warp_time = 0.0;
+                                }
+                                VirtualKeyCode::Key7 => {
+                                    target_position = cgmath::Vector3::new(7.0, 0.0, 0.0); // Saturno
+                                    is_warping = true;
+                                    warp_time = 0.0;
+                                }
+                                VirtualKeyCode::Key8 => {
+                                    target_position = cgmath::Vector3::new(10.0, 0.0, 0.0); // Urano
+                                    is_warping = true;
+                                    warp_time = 0.0;
+                                }
 
-                            // Movimiento manual
-                            VirtualKeyCode::W => state.spaceship_position.z -= MOVE_SPEED, // Adelante
-                            VirtualKeyCode::S => state.spaceship_position.z += MOVE_SPEED, // Atrás
-                            VirtualKeyCode::A => state.spaceship_position.x -= MOVE_SPEED, // Izquierda
-                            VirtualKeyCode::D => state.spaceship_position.x += MOVE_SPEED, // Derecha
-                            VirtualKeyCode::Space => state.spaceship_position.y += MOVE_SPEED, // Subir
-                            VirtualKeyCode::LShift => state.spaceship_position.y -= MOVE_SPEED, // Bajar
-                            VirtualKeyCode::Left => state.spaceship_rotation.y -= ROTATE_SPEED, // Rotar izquierda
-                            VirtualKeyCode::Right => state.spaceship_rotation.y += ROTATE_SPEED, // Rotar derecha
-                            VirtualKeyCode::Up => state.spaceship_rotation.x -= ROTATE_SPEED, // Rotar arriba
-                            VirtualKeyCode::Down => state.spaceship_rotation.x += ROTATE_SPEED, // Rotar abajo
-                            _ => {}
+                                // Movimiento manual
+                                VirtualKeyCode::W => state.spaceship_position.z -= 0.2, // Adelante
+                                VirtualKeyCode::S => state.spaceship_position.z += 0.2, // Atrás
+                                VirtualKeyCode::A => state.spaceship_position.x -= 0.2, // Izquierda
+                                VirtualKeyCode::D => state.spaceship_position.x += 0.2, // Derecha
+                                VirtualKeyCode::Space => state.spaceship_position.y += 0.2, // Subir
+                                VirtualKeyCode::LShift => state.spaceship_position.y -= 0.2, // Bajar
+                                VirtualKeyCode::Left => state.spaceship_rotation.y -= 0.05, // Rotar izquierda
+                                VirtualKeyCode::Right => state.spaceship_rotation.y += 0.05, // Rotar derecha
+                                VirtualKeyCode::Up => state.spaceship_rotation.x -= 0.05, // Rotar arriba
+                                VirtualKeyCode::Down => state.spaceship_rotation.x += 0.05, // Rotar abajo
+                                _ => {}
+                            }
                         }
                     }
                     _ => {}
@@ -881,13 +903,32 @@ async fn run() {
             }
             Event::MainEventsCleared => {
                 current_time += 0.016; // Incrementa ~60 FPS
-                
+
+                // Lógica de animación de warping
+                if is_warping {
+                    warp_time += 0.016; // Incrementar tiempo de animación
+
+                    if warp_time < WARP_DURATION / 2.0 {
+                        // Fase de fade out (desaparecer)
+                        state.spaceship.uniforms.color[3] = 1.0 - (warp_time / (WARP_DURATION / 2.0));
+                    } else if warp_time < WARP_DURATION {
+                        // Fase de fade in (reaparecer)
+                        if state.spaceship_position != target_position {
+                            state.spaceship_position = target_position; // Mover a la posición objetivo
+                        }
+                        state.spaceship.uniforms.color[3] = (warp_time - WARP_DURATION / 2.0) / (WARP_DURATION / 2.0);
+                    } else {
+                        // Finaliza el warping
+                        state.spaceship.uniforms.color[3] = 1.0; // Totalmente visible
+                        is_warping = false;
+                    }
+                }
+
                 // Actualizar planetas
                 for sphere in &mut state.spheres {
                     let mut uniforms = sphere.uniforms;
                     uniforms.time = current_time;
 
-                    // Cálculo de órbitas
                     if uniforms.orbital_speed > 0.0 {
                         let angle = current_time * uniforms.orbital_speed;
                         let x = uniforms.orbital_radius * angle.cos();
@@ -907,7 +948,7 @@ async fn run() {
                     );
                 }
 
-                // Actualizar nave espacial (usando posición manual o warping)
+                // Actualizar nave espacial
                 let translation = cgmath::Matrix4::from_translation(state.spaceship_position);
                 let rotation = cgmath::Matrix4::from_angle_y(cgmath::Rad(state.spaceship_rotation.y))
                     * cgmath::Matrix4::from_angle_x(cgmath::Rad(state.spaceship_rotation.x))

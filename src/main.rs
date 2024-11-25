@@ -813,17 +813,19 @@ async fn run() {
     let mut state = State::new(&window).await;
     let mut current_time: f32 = 0.0;
 
-    // Variables para controlar la velocidad y rotación de la nave manualmente
+    // Variables para controlar la velocidad de movimiento y rotación
     const MOVE_SPEED: f32 = 0.2; // Velocidad de movimiento
     const ROTATE_SPEED: f32 = 0.05; // Velocidad de rotación
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
+
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                    // Capturar teclas para mover la nave manualmente
+                    
+                    // Capturar teclas para movimiento manual y warping
                     WindowEvent::KeyboardInput {
                         input:
                             KeyboardInput {
@@ -834,6 +836,33 @@ async fn run() {
                         ..
                     } => {
                         match key {
+                            // Warping instantáneo
+                            VirtualKeyCode::Key1 => {
+                                state.spaceship_position = cgmath::Vector3::new(-15.0, 0.0, 0.0); // Sol
+                            }
+                            VirtualKeyCode::Key2 => {
+                                state.spaceship_position = cgmath::Vector3::new(-8.5, 0.0, 0.0); // Mercurio
+                            }
+                            VirtualKeyCode::Key3 => {
+                                state.spaceship_position = cgmath::Vector3::new(-6.0, 0.0, 0.0); // Venus
+                            }
+                            VirtualKeyCode::Key4 => {
+                                state.spaceship_position = cgmath::Vector3::new(-3.0, 0.0, 0.0); // Tierra
+                            }
+                            VirtualKeyCode::Key5 => {
+                                state.spaceship_position = cgmath::Vector3::new(0.0, 0.0, 0.0); // Marte
+                            }
+                            VirtualKeyCode::Key6 => {
+                                state.spaceship_position = cgmath::Vector3::new(3.0, 0.0, 0.0); // Júpiter
+                            }
+                            VirtualKeyCode::Key7 => {
+                                state.spaceship_position = cgmath::Vector3::new(7.0, 0.0, 0.0); // Saturno
+                            }
+                            VirtualKeyCode::Key8 => {
+                                state.spaceship_position = cgmath::Vector3::new(10.0, 0.0, 0.0); // Urano
+                            }
+
+                            // Movimiento manual
                             VirtualKeyCode::W => state.spaceship_position.z -= MOVE_SPEED, // Adelante
                             VirtualKeyCode::S => state.spaceship_position.z += MOVE_SPEED, // Atrás
                             VirtualKeyCode::A => state.spaceship_position.x -= MOVE_SPEED, // Izquierda
@@ -851,13 +880,14 @@ async fn run() {
                 }
             }
             Event::MainEventsCleared => {
-                current_time += 0.016; // Incrementa el tiempo ~60 FPS
-
-                // Actualiza la posición y rotación de los planetas
+                current_time += 0.016; // Incrementa ~60 FPS
+                
+                // Actualizar planetas
                 for sphere in &mut state.spheres {
                     let mut uniforms = sphere.uniforms;
                     uniforms.time = current_time;
 
+                    // Cálculo de órbitas
                     if uniforms.orbital_speed > 0.0 {
                         let angle = current_time * uniforms.orbital_speed;
                         let x = uniforms.orbital_radius * angle.cos();
@@ -877,7 +907,7 @@ async fn run() {
                     );
                 }
 
-                // Actualiza la nave espacial manualmente
+                // Actualizar nave espacial (usando posición manual o warping)
                 let translation = cgmath::Matrix4::from_translation(state.spaceship_position);
                 let rotation = cgmath::Matrix4::from_angle_y(cgmath::Rad(state.spaceship_rotation.y))
                     * cgmath::Matrix4::from_angle_x(cgmath::Rad(state.spaceship_rotation.x))
@@ -891,7 +921,7 @@ async fn run() {
                     bytemuck::cast_slice(&[state.spaceship.uniforms]),
                 );
 
-                // Solicita un redibujo
+                // Solicitar redibujo
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
@@ -901,4 +931,3 @@ async fn run() {
         }
     });
 }
-

@@ -113,9 +113,6 @@ impl Spaceship {
 }
 
 
-
-
-
 // Shaders de las estrellas
 // Actualización de los shaders de estrellas.
 const STAR_VERTEX_SHADER: &str = r#"

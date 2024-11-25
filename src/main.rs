@@ -29,6 +29,37 @@ struct Star {
     brightness: f32,
 }
 
+
+fn load_obj_model(file_path: &str) -> (Vec<[f32; 3]>, Vec<u32>) {
+    use tobj;
+    use std::path::Path;
+
+    // Cargar el archivo .obj
+    let (models, _) = tobj::load_obj(Path::new(file_path), &tobj::LoadOptions::default())
+        .expect("Failed to load OBJ file");
+
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    // Iterar sobre los modelos dentro del archivo OBJ
+    for model in models {
+        let mesh = &model.mesh;
+
+        // Extraer vértices (posición)
+        vertices.extend(
+            mesh.positions
+                .chunks(3) // Cada vértice tiene 3 componentes (x, y, z)
+                .map(|chunk| [chunk[0], chunk[1], chunk[2]])
+        );
+
+        // Extraer índices
+        indices.extend(mesh.indices.iter().map(|&index| index as u32));
+    }
+
+    (vertices, indices)
+}
+
+
 impl Star {
     fn new(rng: &mut impl rand::Rng) -> Self {
         let theta = rng.gen_range(0.0..std::f32::consts::PI * 2.0); // Ángulo azimutal (0 a 360°).
@@ -46,71 +77,149 @@ impl Star {
     }
 }
 
-fn load_obj_model(path: &str, device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer, u32) {
-    let (models, _) = tobj::load_obj(path, &tobj::LoadOptions::default()).unwrap();
-    let model = &models[0];
-    let mesh = &model.mesh;
-
-    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Spaceship Vertex Buffer"),
-        contents: bytemuck::cast_slice(&mesh.positions),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
-
-    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Spaceship Index Buffer"),
-        contents: bytemuck::cast_slice(&mesh.indices),
-        usage: wgpu::BufferUsages::INDEX,
-    });
-
-    (vertex_buffer, index_buffer, mesh.indices.len() as u32)
-}
-
 struct Spaceship {
-    position: [f32; 3],
-    rotation: [f32; 3],
-    scale: f32,
+    pipeline: wgpu::RenderPipeline,
+    uniform_buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
-    pipeline: wgpu::RenderPipeline,
+    uniforms: Uniforms,
 }
 
 impl Spaceship {
-    fn new(
-        path: &str,
+    fn new_from_obj(
         device: &wgpu::Device,
-        pipeline: wgpu::RenderPipeline,
+        config: &wgpu::SurfaceConfiguration,
+        file_path: &str,
+        scale: f32,
+        color: [f32; 4],
     ) -> Self {
-        let (vertex_buffer, index_buffer, num_indices) = load_obj_model(path, device);
+        // Load OBJ model
+        let (vertices, indices) = load_obj_model(file_path);
+
+        // Create uniform bind group layout
+        let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Spaceship Uniform Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Spaceship Vertex Shader"),
+            source: wgpu::ShaderSource::Wgsl(shaders::VERTEX_SHADER.into()),
+        });
+
+        let fragment_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Spaceship Fragment Shader"),
+            source: wgpu::ShaderSource::Wgsl(shaders::FRAGMENT_SHADER_8.into()),
+        });
+
+        // Create pipeline layout with uniform bind group layout
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Spaceship Pipeline Layout"),
+            bind_group_layouts: &[&uniform_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Spaceship Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &vertex_shader,
+                entry_point: "vs_main",
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<[f32; 3]>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &fragment_shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
+        let uniforms = Uniforms::new([0.0, 0.0, 0.0], color, scale, 0.0, 0.0);
+
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Spaceship Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[uniforms]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Spaceship Bind Group"),
+            layout: &uniform_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Spaceship Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Spaceship Index Buffer"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
 
         Spaceship {
-            position: [0.0, 0.0, 0.0],
-            rotation: [0.0, 0.0, 0.0],
-            scale: 1.0,
+            pipeline,
+            uniform_buffer,
+            bind_group,
             vertex_buffer,
             index_buffer,
-            num_indices,
-            pipeline,
+            num_indices: indices.len() as u32,
+            uniforms,
         }
     }
-
-    fn get_model_matrix(&self) -> cgmath::Matrix4<f32> {
-        let translation = cgmath::Matrix4::from_translation(cgmath::Vector3::new(
-            self.position[0],
-            self.position[1],
-            self.position[2],
-        ));
-
-        let rotation_x = cgmath::Matrix4::from_angle_x(cgmath::Rad(self.rotation[0]));
-        let rotation_y = cgmath::Matrix4::from_angle_y(cgmath::Rad(self.rotation[1]));
-        let rotation_z = cgmath::Matrix4::from_angle_z(cgmath::Rad(self.rotation[2]));
-
-        let scale = cgmath::Matrix4::from_scale(self.scale);
-
-        translation * rotation_x * rotation_y * rotation_z * scale
-    }
 }
+
 
 
 // Shaders de las estrellas
@@ -179,7 +288,9 @@ struct State {
     star_buffer: wgpu::Buffer,
     num_stars: u32,
     star_pipeline: wgpu::RenderPipeline,
-    
+    spaceship: Spaceship, // Agrega este campo
+    spaceship_position: cgmath::Vector3<f32>, // Posición de la nave
+    spaceship_rotation: cgmath::Vector3<f32>,
 }
 
 
@@ -275,6 +386,7 @@ impl State {
     }
     
     async fn new(window: &winit::window::Window) -> Self {
+        
         
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
@@ -409,6 +521,15 @@ impl State {
             17.0, // Saturno
             19.0, // Urano
         ];
+        let spaceship = Spaceship::new_from_obj(
+            &device,
+            &config,
+            "assets/model3d.obj",
+            0.5,                     // Escala
+            [1.0, 1.0, 1.0, 1.0],    // Color
+        );
+        
+        
     
         let mut spheres = Vec::new();
     
@@ -539,7 +660,12 @@ impl State {
             star_buffer,
             num_stars,
             star_pipeline,
+            spaceship,
+            spaceship_position: cgmath::Vector3::new(0.0, 0.0, 0.0), // Posición inicial
+            spaceship_rotation: cgmath::Vector3::new(0.0, 0.0, 0.0), // Sin rotación inicial
+
         }
+        
     }
     
 
@@ -622,7 +748,14 @@ impl State {
                 render_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..sphere.num_indices, 0, 0..1);
             }
+            render_pass.set_pipeline(&self.spaceship.pipeline);
+            render_pass.set_bind_group(0, &self.spaceship.bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.spaceship.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.spaceship.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.spaceship.num_indices, 0, 0..1);
+
         }
+        
     
         self.queue.submit(std::iter::once(encoder.finish())); // Enviar comandos a la GPU
         output.present(); // Presentar el frame actual en la ventana
@@ -679,46 +812,86 @@ async fn run() {
 
     let mut state = State::new(&window).await;
     let mut current_time: f32 = 0.0;
-    
+
+    // Variables para controlar la velocidad y rotación de la nave manualmente
+    const MOVE_SPEED: f32 = 0.2; // Velocidad de movimiento
+    const ROTATE_SPEED: f32 = 0.05; // Velocidad de rotación
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
             Event::WindowEvent { event, .. } => {
-                if let WindowEvent::CloseRequested = event {
-                    *control_flow = ControlFlow::Exit;
+                match event {
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                    // Capturar teclas para mover la nave manualmente
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(key),
+                                ..
+                            },
+                        ..
+                    } => {
+                        match key {
+                            VirtualKeyCode::W => state.spaceship_position.z -= MOVE_SPEED, // Adelante
+                            VirtualKeyCode::S => state.spaceship_position.z += MOVE_SPEED, // Atrás
+                            VirtualKeyCode::A => state.spaceship_position.x -= MOVE_SPEED, // Izquierda
+                            VirtualKeyCode::D => state.spaceship_position.x += MOVE_SPEED, // Derecha
+                            VirtualKeyCode::Space => state.spaceship_position.y += MOVE_SPEED, // Subir
+                            VirtualKeyCode::LShift => state.spaceship_position.y -= MOVE_SPEED, // Bajar
+                            VirtualKeyCode::Left => state.spaceship_rotation.y -= ROTATE_SPEED, // Rotar izquierda
+                            VirtualKeyCode::Right => state.spaceship_rotation.y += ROTATE_SPEED, // Rotar derecha
+                            VirtualKeyCode::Up => state.spaceship_rotation.x -= ROTATE_SPEED, // Rotar arriba
+                            VirtualKeyCode::Down => state.spaceship_rotation.x += ROTATE_SPEED, // Rotar abajo
+                            _ => {}
+                        }
+                    }
+                    _ => {}
                 }
             }
             Event::MainEventsCleared => {
-                current_time += 0.016; // Incrementa ~60 FPS
-                
+                current_time += 0.016; // Incrementa el tiempo ~60 FPS
+
+                // Actualiza la posición y rotación de los planetas
                 for sphere in &mut state.spheres {
                     let mut uniforms = sphere.uniforms;
                     uniforms.time = current_time;
-                    
-                    // Calcula la nueva posición orbital
+
                     if uniforms.orbital_speed > 0.0 {
                         let angle = current_time * uniforms.orbital_speed;
                         let x = uniforms.orbital_radius * angle.cos();
                         let z = uniforms.orbital_radius * angle.sin();
-                        
-                        // Crea la matriz de transformación
-                        let translation = cgmath::Matrix4::from_translation(
-                            cgmath::Vector3::new(x, 0.0, z)
-                        );
-                        let rotation = cgmath::Matrix4::from_angle_y(
-                            cgmath::Rad(angle)
-                        );
+
+                        let translation = cgmath::Matrix4::from_translation(cgmath::Vector3::new(x, 0.0, z));
+                        let rotation = cgmath::Matrix4::from_angle_y(cgmath::Rad(angle));
                         let scale = cgmath::Matrix4::from_scale(uniforms.model[0][0]);
-                        
+
                         uniforms.model = (translation * rotation * scale).into();
                     }
-                    
+
                     state.queue.write_buffer(
                         &sphere.uniform_buffer,
                         0,
                         bytemuck::cast_slice(&[uniforms]),
                     );
                 }
+
+                // Actualiza la nave espacial manualmente
+                let translation = cgmath::Matrix4::from_translation(state.spaceship_position);
+                let rotation = cgmath::Matrix4::from_angle_y(cgmath::Rad(state.spaceship_rotation.y))
+                    * cgmath::Matrix4::from_angle_x(cgmath::Rad(state.spaceship_rotation.x))
+                    * cgmath::Matrix4::from_angle_z(cgmath::Rad(state.spaceship_rotation.z));
+                let scale = cgmath::Matrix4::from_scale(0.2);
+
+                state.spaceship.uniforms.model = (translation * rotation * scale).into();
+                state.queue.write_buffer(
+                    &state.spaceship.uniform_buffer,
+                    0,
+                    bytemuck::cast_slice(&[state.spaceship.uniforms]),
+                );
+
+                // Solicita un redibujo
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
@@ -728,3 +901,4 @@ async fn run() {
         }
     });
 }
+

@@ -69,7 +69,7 @@ Sigue estos pasos para ejecutar el proyecto en tu máquina local:
 
 Aquí puedes ver una demostración del sistema en funcionamiento:
 
-[Video de demostración]([https://youtube.com/watch?v=<id-del-video>](https://youtu.be/dXPGvslMZzU))
+   - **Enlace al video**: [https://youtu.be/dXPGvslMZzU](https://youtu.be/dXPGvslMZzU).
 
 ## Estructura del proyecto
 
